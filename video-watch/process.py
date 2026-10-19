@@ -21,6 +21,7 @@ import tempfile
 import time
 
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+ATTEMPTS = []  # سجل محاولات التنزيل (يُحفظ في meta.json للتشخيص)
 
 
 def run(cmd, **kw):
@@ -48,6 +49,9 @@ def download(url, workdir):
     # يوتيوب أحياناً يرفض سيرفرات مراكز البيانات؛ نجرّب واجهات (clients) مختلفة
     attempts = [[]]
     if re.search(r"(youtube\.com|youtu\.be)", url):
+        if os.environ.get("VW_POT_URL"):
+            attempts.insert(0, ["--extractor-args",
+                                f"youtubepot-bgutilhttp:base_url={os.environ['VW_POT_URL']}"])
         attempts += [
             ["--extractor-args", "youtube:player_client=tv_simply,web_safari"],
             ["--extractor-args", "youtube:player_client=mweb,android_vr"],
@@ -57,10 +61,13 @@ def download(url, workdir):
     for extra in attempts:
         try:
             run(base + extra + [url])
+            ATTEMPTS.append({"args": " ".join(extra) or "default", "ok": True})
             last_err = None
             break
         except subprocess.CalledProcessError as e:
             last_err = e
+            ATTEMPTS.append({"args": " ".join(extra) or "default", "ok": False,
+                             "error": (e.stderr or "").strip()[-500:]})
             print(f"download attempt failed {extra}: {(e.stderr or '')[-400:]}", flush=True)
             for f in os.listdir(workdir):
                 os.remove(os.path.join(workdir, f))
@@ -227,6 +234,7 @@ def main():
         print(meta["error"], file=sys.stderr)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)  # حذف الفيديو والصوت
+        meta["download_attempts"] = ATTEMPTS
         with open(os.path.join(a.out, "meta.json"), "w", encoding="utf-8") as fh:
             json.dump(meta, fh, ensure_ascii=False, indent=2)
     print(json.dumps({k: v for k, v in meta.items() if k != "frames"}, ensure_ascii=False, indent=2))

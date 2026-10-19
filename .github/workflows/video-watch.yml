@@ -65,6 +65,15 @@ jobs:
           pip install -q -U --pre "yt-dlp[default]"
           yt-dlp --version
 
+      # يوتيوب: مولّد PO Token يشتغل على نفس السيرفر لتجاوز فحص "هل أنت روبوت"
+      - name: Start YouTube PO-token provider
+        if: contains(inputs.url, 'youtu')
+        run: |
+          docker run -d --name bgutil -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider
+          pip install -q -U bgutil-ytdlp-pot-provider
+          for i in $(seq 1 20); do curl -s localhost:4416/ping && break; sleep 2; done
+          echo "VW_POT_URL=http://127.0.0.1:4416" >> "$GITHUB_ENV"
+
       - name: Cache whisper model
         if: inputs.mode != 'see'
         uses: actions/cache@v4
