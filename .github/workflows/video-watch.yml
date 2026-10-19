@@ -1,0 +1,105 @@
+name: video-watch
+run-name: "watch ${{ inputs.job_id }}"
+
+# يشغّله Claude عن طريق API (workflow_dispatch)
+# النتيجة (فريمات + نص + معلومات) تنرفع على فرع مؤقت watch/<job_id>
+# Claude يسحبها ويحللها ثم يحذف الفرع — الفيديو نفسه لا يُحفظ أبداً
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "رابط الفيديو"
+        required: true
+      job_id:
+        description: "معرّف المهمة (يحدده Claude)"
+        required: true
+      mode:
+        description: "watch = صورة وصوت | listen = نص فقط | see = فريمات فقط"
+        default: "watch"
+      max_frames:
+        description: "أقصى عدد فريمات"
+        default: "16"
+      model:
+        description: "موديل faster-whisper"
+        default: "large-v3-turbo"
+      lang:
+        description: "لغة الكلام (auto أو ar أو en ...)"
+        default: "auto"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: watch-${{ inputs.job_id }}
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: video-watch
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: video-watch/requirements.txt
+
+      # yt-dlp يحتاج محرك JavaScript لفك حماية يوتيوب
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Install ffmpeg
+        run: |
+          if ! command -v ffmpeg >/dev/null; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+          fi
+          ffmpeg -version | head -1
+
+      - name: Install Python deps
+        run: |
+          pip install -q -r video-watch/requirements.txt
+          pip install -q -U --pre "yt-dlp[default]"
+          yt-dlp --version
+
+      - name: Cache whisper model
+        if: inputs.mode != 'see'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: whisper-${{ inputs.model }}-v1
+
+      - name: Process video
+        id: proc
+        continue-on-error: true
+        env:
+          VW_URL: ${{ inputs.url }}
+          VW_MODE: ${{ inputs.mode }}
+          VW_FRAMES: ${{ inputs.max_frames }}
+          VW_MODEL: ${{ inputs.model }}
+          VW_LANG: ${{ inputs.lang }}
+        run: |
+          python video-watch/process.py "$VW_URL" "$RUNNER_TEMP/result" \
+            --mode "$VW_MODE" --max-frames "$VW_FRAMES" \
+            --model "$VW_MODEL" --lang "$VW_LANG"
+
+      - name: Publish result to temporary branch
+        if: always()
+        env:
+          JOB: ${{ inputs.job_id }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/result"
+          [ -f "$RUNNER_TEMP/result/meta.json" ] || echo '{"status":"error","error":"processing crashed before writing meta"}' > "$RUNNER_TEMP/result/meta.json"
+          cd "$RUNNER_TEMP/result"
+          git init -q -b "watch/$JOB"
+          git config user.name "video-watch-bot"
+          git config user.email "video-watch-bot@users.noreply.github.com"
+          git add -A
+          git commit -q -m "watch result $JOB"
+          git push -q --force \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" \
+            "watch/$JOB:watch/$JOB"
+          echo "pushed branch watch/$JOB"
