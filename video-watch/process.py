@@ -38,14 +38,34 @@ def fmt_ts(sec):
 def download(url, workdir):
     """ينزّل الفيديو بأقل جودة كافية للتحليل (≤720p) لتسريع العمل."""
     out_tmpl = os.path.join(workdir, "video.%(ext)s")
-    cmd = [
+    base = [
         "yt-dlp", "--no-playlist", "--no-warnings", "--restrict-filenames",
         "-f", "bv*[height<=720]+ba/b[height<=720]/bv*+ba/b",
         "--merge-output-format", "mp4",
-        "--write-info-json",
-        "-o", out_tmpl, url,
+        "--write-info-json", "--retries", "3",
+        "-o", out_tmpl,
     ]
-    run(cmd)
+    # يوتيوب أحياناً يرفض سيرفرات مراكز البيانات؛ نجرّب واجهات (clients) مختلفة
+    attempts = [[]]
+    if re.search(r"(youtube\.com|youtu\.be)", url):
+        attempts += [
+            ["--extractor-args", "youtube:player_client=tv_simply,web_safari"],
+            ["--extractor-args", "youtube:player_client=mweb,android_vr"],
+            ["--extractor-args", "youtube:player_client=web_embedded,tv"],
+        ]
+    last_err = None
+    for extra in attempts:
+        try:
+            run(base + extra + [url])
+            last_err = None
+            break
+        except subprocess.CalledProcessError as e:
+            last_err = e
+            print(f"download attempt failed {extra}: {(e.stderr or '')[-400:]}", flush=True)
+            for f in os.listdir(workdir):
+                os.remove(os.path.join(workdir, f))
+    if last_err:
+        raise last_err
     video = next(
         os.path.join(workdir, f) for f in os.listdir(workdir)
         if f.startswith("video.") and not f.endswith(".json")
