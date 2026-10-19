@@ -48,6 +48,11 @@ def download(url, workdir):
     ]
     # يوتيوب أحياناً يرفض سيرفرات مراكز البيانات؛ نجرّب واجهات (clients) مختلفة
     attempts = [[]]
+    # تيك توك وغيره يرفضوا الطلبات "الآلية"؛ ننتحل بصمة متصفح كروم
+    if re.search(r"(tiktok\.com|facebook\.com|fb\.watch)", url):
+        attempts.insert(0, ["--impersonate", "chrome"])
+    else:
+        attempts.append(["--impersonate", "chrome"])
     if re.search(r"(youtube\.com|youtu\.be)", url):
         if os.environ.get("VW_POT_URL"):
             attempts.insert(0, ["--extractor-args",
@@ -158,17 +163,24 @@ def transcribe(video, workdir, model_name, lang):
     audio = os.path.join(workdir, "audio.wav")
     try:
         run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", video,
-             "-vn", "-ac", "1", "-ar", "16000", "-y", audio])
+             "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "-y", audio])
     except subprocess.CalledProcessError:
         return None, [], "no-audio"
     if not os.path.exists(audio) or os.path.getsize(audio) < 2000:
         return None, [], "no-audio"
 
+    # نقرأ الصوت بأنفسنا (wav 16kHz mono) بدل PyAV لتفادي تعارض الإصدارات
+    import wave
+    import numpy as np
+    with wave.open(audio, "rb") as wf:
+        pcm = np.frombuffer(wf.readframes(wf.getnframes()), dtype=np.int16)
+    samples = pcm.astype(np.float32) / 32768.0
+
     from faster_whisper import WhisperModel
     model = WhisperModel(model_name, device="cpu", compute_type="int8",
                          cpu_threads=os.cpu_count() or 4)
     segments, info = model.transcribe(
-        audio,
+        samples,
         language=None if lang in ("", "auto") else lang,
         vad_filter=True,
         beam_size=5,

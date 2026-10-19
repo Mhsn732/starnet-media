@@ -62,7 +62,7 @@ jobs:
       - name: Install Python deps
         run: |
           pip install -q -r video-watch/requirements.txt
-          pip install -q -U --pre "yt-dlp[default]"
+          pip install -q -U --pre "yt-dlp[default,curl-cffi]"
           yt-dlp --version
 
       # يوتيوب: مولّد PO Token يشتغل على نفس السيرفر لتجاوز فحص "هل أنت روبوت"
