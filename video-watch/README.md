@@ -10,5 +10,5 @@
 ## التشغيل من Claude
 ```bash
 video-watch/watch.sh "URL" [watch|listen|see] [max_frames] [model] [lang]
-video-watch/watch.sh --clean /tmp/video-watch/<job>   # حذف النتيجة والفرع
+video-watch/watch.sh --clean /tmp/video-watch/<job>   # حذف النتيجة محلياً + حذف الفرع عبر workflow التنظيف (وفي تنظيف يومي احتياطي)
 ```

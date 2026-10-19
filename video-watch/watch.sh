@@ -10,7 +10,9 @@ OUT_ROOT="${VW_OUT:-/tmp/video-watch}"
 
 if [[ "${1:-}" == "--clean" ]]; then
   dir="$2"; job="$(basename "$dir")"
-  curl -sS -X DELETE "${H[@]}" "$API/git/refs/heads/watch/$job" -o /dev/null -w "branch delete: %{http_code}\n" || true
+  # حذف الفرع يتم داخل GitHub عبر workflow التنظيف
+  curl -sS -X POST "${H[@]}" "$API/actions/workflows/video-watch-clean.yml/dispatches" \
+    -d "{\"ref\":\"main\",\"inputs\":{\"job_id\":\"$job\"}}" -o /dev/null -w "clean dispatch: %{http_code}\n" || true
   rm -rf "$dir"; echo "cleaned $job"; exit 0
 fi
 
